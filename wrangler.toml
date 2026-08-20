@@ -1,0 +1,20 @@
+name = "spotify-nowplaying"
+main = "src/index.js"
+compatibility_date = "2026-07-25"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = ["/connect", "/callback", "/o/*", "/api/*"]
+
+[[kv_namespaces]]
+binding = "USERS"
+id = "64d821e07d3147baa47fe670d6ace95e"
+
+[[kv_namespaces]]
+binding = "USER_INDEX"
+id = "8d3bd837f58a46b0bb0a94bee4fdcd1a"
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "433261ef826b412194269de27a33eb18"

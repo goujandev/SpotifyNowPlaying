@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Now Playing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+
+  body {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    min-height: 100vh;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+
+  #widget {
+    --accent: #1db954;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px 16px 16px;
+    width: max-content;
+    max-width: 460px;
+    background: rgba(18, 18, 18, 0.82);
+    color: #fff;
+    border-radius: 10px;
+    border-left: 4px solid var(--accent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.35s ease, transform 0.35s ease, border-color 0.4s ease;
+  }
+
+  #widget.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #art {
+    width: 64px;
+    height: 64px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #282828;
+  }
+
+  #meta {
+    min-width: 0;
+  }
+
+  #track {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #artist {
+    font-size: 14px;
+    font-weight: 400;
+    color: #b3b3b3;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+
+  #progress-track {
+    margin-top: 10px;
+    height: 3px;
+    width: 100%;
+    background: #3e3e3e;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  #progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: background-color 0.4s ease;
+  }
+</style>
+</head>
+<body>
+<div id="widget">
+  <img id="art" alt="">
+  <div id="meta">
+    <div id="track"></div>
+    <div id="artist"></div>
+    <div id="progress-track">
+      <div id="progress-fill"></div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const POLL_MS = 5000;
+  const slug = window.location.pathname.split("/").filter(Boolean).pop();
+  const widget = document.getElementById("widget");
+  const art = document.getElementById("art");
+  const track = document.getElementById("track");
+  const artist = document.getElementById("artist");
+  const progressFill = document.getElementById("progress-fill");
+  const DEFAULT_ACCENT = "#1db954";
+
+  let lastArtUrl = null;
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h, s;
+    const l = (max + min) / 2;
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        default: h = (r - g) / d + 4;
+      }
+      h /= 6;
+    }
+    return [h, s, l];
+  }
+
+  function hslToCss(h, s, l) {
+    return `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+  }
+
+  function extractAccentColor(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 32;
+          canvas.height = 32;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, 32, 32);
+          const { data } = ctx.getImageData(0, 0, 32, 32);
+          let r = 0, g = 0, b = 0, count = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            r += data[i];
+            g += data[i + 1];
+            b += data[i + 2];
+            count++;
+          }
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+          const [h, s] = rgbToHsl(r, g, b);
+          // clamp saturation/lightness so the accent stays vivid and readable
+          // on the widget's dark background, regardless of how muted the art is
+          const boostedS = Math.max(s, 0.55);
+          resolve(hslToCss(h, boostedS, 0.55));
+        } catch (err) {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  async function poll() {
+    let data;
+    try {
+      const res = await fetch(`/api/o/${slug}`, { cache: "no-store" });
+      if (!res.ok) return;
+      data = await res.json();
+    } catch (err) {
+      return;
+    }
+
+    if (!data.playing) {
+      widget.classList.remove("visible");
+      return;
+    }
+
+    track.textContent = data.track || "";
+    artist.textContent = data.artist || "";
+    if (data.album_art_url) {
+      art.src = data.album_art_url;
+      if (data.album_art_url !== lastArtUrl) {
+        lastArtUrl = data.album_art_url;
+        extractAccentColor(data.album_art_url).then((accent) => {
+          widget.style.setProperty("--accent", accent || DEFAULT_ACCENT);
+        });
+      }
+    }
+    if (data.duration_ms) {
+      const pct = Math.min(100, (data.progress_ms / data.duration_ms) * 100);
+      progressFill.style.width = `${pct}%`;
+    }
+    widget.classList.add("visible");
+  }
+
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>
